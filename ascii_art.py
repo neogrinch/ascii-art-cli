@@ -8,8 +8,11 @@ Usage:
 Examples:
     python ascii_art.py photo.jpg
     python ascii_art.py photo.jpg --width 120 --color
-    python ascii_art.py photo.jpg --charset blocks --invert -o out.txt
+    python ascii_art.py photo.jpg --charset blocks --no-invert -o out.txt
     python ascii_art.py https://example.com/image.png --width 80
+
+Background inversion is auto-detected from the image border by default.
+Pass --invert or --no-invert to override.
 """
 
 import argparse
@@ -49,6 +52,27 @@ def resize_image(img: Image.Image, width: int, height: int = None) -> Image.Imag
         ratio = orig_h / orig_w
         height = max(1, int(width * ratio * CHAR_ASPECT_CORRECTION))
     return img.resize((width, height))
+
+
+def detect_bright_background(img: Image.Image, threshold: int = 170) -> bool:
+    """Sample the border pixels of the image and decide if the background is
+    light. Used to auto-pick invert so dark-on-light photos (e.g. product
+    shots on white) don't render as a solid block of foreground characters.
+    """
+    gray = img.convert("L")
+    w, h = gray.size
+    pixels = gray.load()
+
+    border_values = []
+    for x in range(w):
+        border_values.append(pixels[x, 0])
+        border_values.append(pixels[x, h - 1])
+    for y in range(h):
+        border_values.append(pixels[0, y])
+        border_values.append(pixels[w - 1, y])
+
+    avg = sum(border_values) / len(border_values)
+    return avg >= threshold
 
 
 def pixel_to_char(value: int, charset: str, invert: bool) -> str:
@@ -97,7 +121,15 @@ def main():
         default="standard",
         help="Character ramp to use (default: standard)",
     )
-    parser.add_argument("--invert", action="store_true", help="Invert light/dark mapping")
+    invert_group = parser.add_mutually_exclusive_group()
+    invert_group.add_argument(
+        "--invert", dest="invert", action="store_true", default=None,
+        help="Force-invert light/dark mapping",
+    )
+    invert_group.add_argument(
+        "--no-invert", dest="invert", action="store_false",
+        help="Force-disable inversion (overrides auto-detection)",
+    )
     parser.add_argument("--color", action="store_true", help="Output with ANSI 24-bit color (terminal only)")
     parser.add_argument("-o", "--output", help="Write result to this file instead of stdout")
     args = parser.parse_args()
@@ -108,8 +140,15 @@ def main():
         print(f"Error loading image '{args.input}': {e}", file=sys.stderr)
         sys.exit(1)
 
+    if args.invert is None:
+        invert = detect_bright_background(img)
+        if invert:
+            print("Auto-detected light background, inverting (use --no-invert to disable).", file=sys.stderr)
+    else:
+        invert = args.invert
+
     charset = CHARSETS[args.charset]
-    ascii_art = image_to_ascii(img, args.width, args.height, charset, args.invert, args.color)
+    ascii_art = image_to_ascii(img, args.width, args.height, charset, invert, args.color)
 
     if args.output:
         text_to_write = ascii_art if args.color else ascii_art
