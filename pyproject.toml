@@ -1,0 +1,9 @@
+[project]
+name = "ascii-art-cli"
+version = "0.1.0"
+description = "Add your description here"
+requires-python = ">=3.14"
+dependencies = [
+    "certifi>=2026.10.23",
+    "pillow>=13.0.0",
+]
